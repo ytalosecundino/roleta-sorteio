@@ -837,7 +837,7 @@ import { DEFAULT_COLORS, isValidColor, normalizeItems, normalizeHistory } from "
       if (history.length > 50) history.shift();
 
       if (spinMode === "eliminatorio") {
-        const full = items.find((it) => it.id === winner.id && !it.eliminated);
+        const full = items.find((it) => it === winner && !it.eliminated);
         if (full) full.eliminated = true;
       }
 
@@ -1084,10 +1084,10 @@ import { DEFAULT_COLORS, isValidColor, normalizeItems, normalizeHistory } from "
 
   if (items.length === 0 && history.length === 0) {
     items = [
-      { label: "Opção A", color: DEFAULT_COLORS[0], eliminated: false },
-      { label: "Opção B", color: DEFAULT_COLORS[1], eliminated: false },
-      { label: "Opção C", color: DEFAULT_COLORS[2], eliminated: false },
-      { label: "Opção D", color: DEFAULT_COLORS[3], eliminated: false }
+      { id: createId(), label: "Opção A", color: DEFAULT_COLORS[0], eliminated: false },
+      { id: createId(), label: "Opção B", color: DEFAULT_COLORS[1], eliminated: false },
+      { id: createId(), label: "Opção C", color: DEFAULT_COLORS[2], eliminated: false },
+      { id: createId(), label: "Opção D", color: DEFAULT_COLORS[3], eliminated: false }
     ];
     saveState();
     updateUI();
