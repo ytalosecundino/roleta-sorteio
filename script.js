@@ -63,6 +63,32 @@
   const confettiCanvas = document.getElementById("confettiCanvas");
   const confettiCtx = confettiCanvas.getContext("2d");
 
+  function createId() {
+    return crypto.randomUUID();
+  }
+
+  function isValidColor(value) {
+    return typeof value === "string" && /^#[0-9a-f]{6}$/i.test(value);
+  }
+
+  function getRandomInt(max) {
+    if (!Number.isSafeInteger(max) || max < 1) {
+      throw new RangeError("O limite do sorteio deve ser um inteiro positivo.");
+    }
+
+    const range = 0x100000000;
+    const limit = range - (range % max);
+    const values = new Uint32Array(1);
+    let value;
+
+    do {
+      crypto.getRandomValues(values);
+      value = values[0];
+    } while (value >= limit);
+
+    return value % max;
+  }
+
   function nextDefaultColor() {
     return DEFAULT_COLORS[items.length % DEFAULT_COLORS.length];
   }
@@ -70,15 +96,27 @@
   function normalizeItems(raw) {
     if (!Array.isArray(raw)) return [];
     return raw.map((it, i) => {
-      if (typeof it === "string") {
-        return { label: it, color: DEFAULT_COLORS[i % DEFAULT_COLORS.length], eliminated: false };
-      }
+      const item = typeof it === "string" ? { label: it } : (it || {});
+      const label = typeof item.label === "string" ? item.label.trim().slice(0, 40) : "";
       return {
-        label: String(it.label || ""),
-        color: it.color || DEFAULT_COLORS[i % DEFAULT_COLORS.length],
-        eliminated: !!it.eliminated
+        id: typeof item.id === "string" && item.id ? item.id : createId(),
+        label,
+        color: isValidColor(item.color) ? item.color : DEFAULT_COLORS[i % DEFAULT_COLORS.length],
+        eliminated: item.eliminated === true
       };
     }).filter((it) => it.label);
+  }
+
+  function normalizeHistory(raw) {
+    if (!Array.isArray(raw)) return [];
+    return raw.filter((entry) => entry && typeof entry.label === "string")
+      .map((entry) => ({
+        id: typeof entry.id === "string" && entry.id ? entry.id : createId(),
+        itemId: typeof entry.itemId === "string" ? entry.itemId : null,
+        label: entry.label.slice(0, 100),
+        time: Number.isFinite(Date.parse(entry.time)) ? new Date(entry.time).toISOString() : new Date().toISOString()
+      }))
+      .slice(-50);
   }
 
   function activeItems() {
@@ -97,12 +135,13 @@
       const raw = localStorage.getItem(STORAGE_KEY);
       if (!raw) return;
       const data = JSON.parse(raw);
+      if (!data || typeof data !== "object" || Array.isArray(data)) return;
       items = normalizeItems(data.items);
-      history = Array.isArray(data.history) ? data.history : [];
-      history.sort((a, b) => new Date(a.time) - new Date(b.time));
+      history = normalizeHistory(data.history);
+      history.sort((a, b) => Date.parse(a.time) - Date.parse(b.time));
       title = typeof data.title === "string" ? data.title : "Sorteio";
       theme = ["dark", "light", "glass"].includes(data.theme) ? data.theme : "dark";
-      bgImage = data.bgImage || null;
+      bgImage = typeof data.bgImage === "string" && data.bgImage.startsWith("data:image/") ? data.bgImage : null;
       spinMode = data.spinMode === "eliminatorio" ? "eliminatorio" : "geral";
       historyOrder = data.historyOrder === "newest" ? "newest" : "oldest";
     } catch (e) {
@@ -111,7 +150,15 @@
   }
 
   function saveState() {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify({ items, history, title, theme, bgImage, spinMode, historyOrder }));
+    try {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify({
+        items, history, title, theme, bgImage, spinMode, historyOrder
+      }));
+      return true;
+    } catch (error) {
+      console.warn("Não foi possível salvar os dados neste navegador:", error);
+      return false;
+    }
   }
 
   function applyTheme(t, persist = true) {
@@ -295,20 +342,54 @@
     items.forEach((item, index) => {
       const li = document.createElement("li");
       li.className = "item-row" + (item.eliminated ? " eliminated" : "");
-      li.dataset.index = index;
-      const badge = item.eliminated ? '<span class="item-badge-out">fora</span>' : "";
-      li.innerHTML = `
-        <div class="item-color-wrap" title="Alterar cor">
-          <span class="item-color-swatch" style="background:${item.color}"></span>
-          <input type="color" class="item-color-input" value="${item.color}" data-action="color" />
-        </div>
-        <span class="item-label" title="${item.label}">${item.label}</span>
-        ${badge}
-        <div class="item-actions">
-          <button class="btn-icon edit" title="Editar" data-action="edit">✏️</button>
-          <button class="btn-icon delete" title="Remover" data-action="delete">🗑️</button>
-        </div>
-      `;
+      li.dataset.index = String(index);
+
+      const colorWrap = document.createElement("div");
+      colorWrap.className = "item-color-wrap";
+      colorWrap.title = "Alterar cor";
+
+      const swatch = document.createElement("span");
+      swatch.className = "item-color-swatch";
+      swatch.style.backgroundColor = item.color;
+
+      const colorInput = document.createElement("input");
+      colorInput.type = "color";
+      colorInput.className = "item-color-input";
+      colorInput.value = item.color;
+      colorInput.dataset.action = "color";
+      colorWrap.append(swatch, colorInput);
+
+      const label = document.createElement("span");
+      label.className = "item-label";
+      label.title = item.label;
+      label.textContent = item.label;
+
+      const actions = document.createElement("div");
+      actions.className = "item-actions";
+
+      const editButton = document.createElement("button");
+      editButton.type = "button";
+      editButton.className = "btn-icon edit";
+      editButton.title = "Editar";
+      editButton.dataset.action = "edit";
+      editButton.textContent = "✏️";
+
+      const deleteButton = document.createElement("button");
+      deleteButton.type = "button";
+      deleteButton.className = "btn-icon delete";
+      deleteButton.title = "Remover";
+      deleteButton.dataset.action = "delete";
+      deleteButton.textContent = "🗑️";
+      actions.append(editButton, deleteButton);
+
+      if (item.eliminated) {
+        const badge = document.createElement("span");
+        badge.className = "item-badge-out";
+        badge.textContent = "fora";
+        li.append(colorWrap, label, badge, actions);
+      } else {
+        li.append(colorWrap, label, actions);
+      }
       itemsList.appendChild(li);
     });
   }
@@ -334,11 +415,19 @@
       const realIndex = history.indexOf(entry);
       const li = document.createElement("li");
       li.className = "history-item";
-      li.innerHTML = `
-        <span class="history-number">#${realIndex + 1}</span>
-        <span class="history-label">${entry.label}</span>
-        <span class="history-time">${formatTime(entry.time)}</span>
-      `;
+      const number = document.createElement("span");
+      number.className = "history-number";
+      number.textContent = `#${realIndex + 1}`;
+
+      const label = document.createElement("span");
+      label.className = "history-label";
+      label.textContent = entry.label;
+
+      const time = document.createElement("span");
+      time.className = "history-time";
+      time.textContent = formatTime(entry.time);
+
+      li.append(number, label, time);
       historyList.appendChild(li);
     });
     if (toggleHistoryOrderBtn) {
@@ -364,7 +453,7 @@
       alert("Esse item já existe na lista.");
       return;
     }
-    items.push({ label: trimmed, color: nextDefaultColor(), eliminated: false });
+    items.push({ id: createId(), label: trimmed, color: nextDefaultColor(), eliminated: false });
     saveState();
     updateUI();
   }
@@ -487,7 +576,7 @@
     if (remaining.length !== 1) return null;
     const last = remaining[0];
     last.eliminated = true;
-    history.push({ label: last.label, time: new Date().toISOString() });
+    history.push({ id: createId(), itemId: last.id, label: last.label, time: new Date().toISOString() });
     if (history.length > 50) history.shift();
     return last;
   }
@@ -573,7 +662,7 @@
     canvas.style.transform = `rotate(${currentRotation}deg)`;
     void canvas.offsetWidth;
 
-    const winnerIndex = Math.floor(Math.random() * wheelItems.length);
+    const winnerIndex = getRandomInt(wheelItems.length);
     const winner = wheelItems[winnerIndex];
 
     const arc = 360 / wheelItems.length;
@@ -593,11 +682,11 @@
     setTimeout(() => {
       isSpinning = false;
 
-      history.push({ label: winner.label, time: new Date().toISOString() });
+      history.push({ id: createId(), itemId: winner.id, label: winner.label, time: new Date().toISOString() });
       if (history.length > 50) history.shift();
 
       if (spinMode === "eliminatorio") {
-        const full = items.find((it) => it.label === winner.label && !it.eliminated);
+        const full = items.find((it) => it.id === winner.id && !it.eliminated);
         if (full) full.eliminated = true;
       }
 
