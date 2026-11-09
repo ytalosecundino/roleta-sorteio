@@ -5,6 +5,9 @@
  * - Confetes no resultado
  */
 
+import { createId, getRandomInt } from "./js/services/random.js";
+import { DEFAULT_COLORS, isValidColor, normalizeItems, normalizeHistory } from "./js/utils/validators.js";
+
 (async () => {
   const STORAGE_KEY = "roleta-sorteio";
   const LEGACY_STORAGE_KEY = "roleta-sorteio-v4";
@@ -27,13 +30,6 @@
   let pendingBgImage = null;
   let spinMode = "geral"; // "geral" | "eliminatorio"
   let historyOrder = "oldest"; // "oldest" | "newest"
-
-  const DEFAULT_COLORS = [
-    "#ef4444", "#f97316", "#eab308", "#22c55e",
-    "#14b8a6", "#3b82f6", "#8b5cf6", "#ec4899",
-    "#f43f5e", "#84cc16", "#06b6d4", "#a855f7",
-    "#fb923c", "#4ade80", "#60a5fa", "#e879f9"
-  ];
 
   const canvas = document.getElementById("wheel");
   const ctx = canvas.getContext("2d");
@@ -71,60 +67,8 @@
   const confettiCanvas = document.getElementById("confettiCanvas");
   const confettiCtx = confettiCanvas.getContext("2d");
 
-  function createId() {
-    return crypto.randomUUID();
-  }
-
-  function isValidColor(value) {
-    return typeof value === "string" && /^#[0-9a-f]{6}$/i.test(value);
-  }
-
-  function getRandomInt(max) {
-    if (!Number.isSafeInteger(max) || max < 1) {
-      throw new RangeError("O limite do sorteio deve ser um inteiro positivo.");
-    }
-
-    const range = 0x100000000;
-    const limit = range - (range % max);
-    const values = new Uint32Array(1);
-    let value;
-
-    do {
-      crypto.getRandomValues(values);
-      value = values[0];
-    } while (value >= limit);
-
-    return value % max;
-  }
-
   function nextDefaultColor() {
     return DEFAULT_COLORS[items.length % DEFAULT_COLORS.length];
-  }
-
-  function normalizeItems(raw) {
-    if (!Array.isArray(raw)) return [];
-    return raw.map((it, i) => {
-      const item = typeof it === "string" ? { label: it } : (it || {});
-      const label = typeof item.label === "string" ? item.label.trim().slice(0, 40) : "";
-      return {
-        id: typeof item.id === "string" && item.id ? item.id : createId(),
-        label,
-        color: isValidColor(item.color) ? item.color : DEFAULT_COLORS[i % DEFAULT_COLORS.length],
-        eliminated: item.eliminated === true
-      };
-    }).filter((it) => it.label);
-  }
-
-  function normalizeHistory(raw) {
-    if (!Array.isArray(raw)) return [];
-    return raw.filter((entry) => entry && typeof entry.label === "string")
-      .map((entry) => ({
-        id: typeof entry.id === "string" && entry.id ? entry.id : createId(),
-        itemId: typeof entry.itemId === "string" ? entry.itemId : null,
-        label: entry.label.slice(0, 100),
-        time: Number.isFinite(Date.parse(entry.time)) ? new Date(entry.time).toISOString() : new Date().toISOString()
-      }))
-      .slice(-50);
   }
 
   function activeItems() {
