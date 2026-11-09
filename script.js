@@ -187,10 +187,15 @@
     }
 
     if (bgImage.startsWith("data:image/")) {
-      const response = await fetch(bgImage);
-      const blob = await response.blob();
-      backgroundMediaId = await storeBackgroundBlob(blob, backgroundMediaId || createId());
-      return backgroundMediaId;
+      try {
+        const response = await fetch(bgImage);
+        const blob = await response.blob();
+        backgroundMediaId = await storeBackgroundBlob(blob, backgroundMediaId || createId());
+        return backgroundMediaId;
+      } catch (error) {
+        console.warn("IndexedDB indisponível; o plano de fundo será mantido como dado legado para evitar perda.", error);
+        return null;
+      }
     }
 
     return backgroundMediaId;
@@ -292,7 +297,8 @@
       background: {
         scope: "wheel",
         mediaId,
-        mediaType: mediaId ? "image" : null
+        mediaType: mediaId ? "image" : null,
+        ...(!mediaId && bgImage && bgImage.startsWith("data:image/") ? { legacyDataUrl: bgImage } : {})
       },
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString()
