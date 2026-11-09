@@ -1125,7 +1125,7 @@
     resizeConfetti();
   });
 
-  loadState();
+  await loadState();
   applyTheme(theme, false);
   applyBackground(bgImage, false);
   applyModeUI();
