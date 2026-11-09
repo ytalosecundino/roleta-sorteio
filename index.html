@@ -1,0 +1,198 @@
+<!DOCTYPE html>
+<html lang="pt-BR" data-theme="dark">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Roleta de Sorteio</title>
+  <link rel="stylesheet" href="style.css" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Outfit:wght@600;700&display=swap" rel="stylesheet" />
+</head>
+<body>
+  <!-- Fundo personalizado (imagem) -->
+  <div id="bgOverlay" class="bg-overlay"></div>
+
+  <!-- Canvas de confetes (acima de tudo no resultado) -->
+  <canvas id="confettiCanvas" class="confetti-canvas"></canvas>
+
+  <div class="app">
+    <!-- Botão de configurações (canto superior direito) -->
+    <button id="settingsBtn" class="settings-btn" title="Personalizar">
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <circle cx="12" cy="12" r="3"></circle>
+        <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path>
+      </svg>
+    </button>
+
+    <!-- Header -->
+    <header class="header">
+      <h1 class="logo">Roleta de Sorteio</h1>
+      <p class="subtitle">Adicione itens e gire a roleta</p>
+    </header>
+
+    <main class="main">
+      <!-- Título da roleta (centralizado acima) -->
+      <div class="title-section">
+        <input
+          type="text"
+          id="wheelTitle"
+          class="wheel-title"
+          placeholder="Digite o título do sorteio..."
+          maxlength="60"
+          value="Sorteio"
+        />
+      </div>
+
+      <!-- Layout 3 colunas: Itens | Roleta | Histórico -->
+      <div class="content">
+        <!-- Esquerda: Itens -->
+        <aside class="items-panel">
+          <h2>Itens da Roleta</h2>
+
+          <form id="addForm" class="add-form">
+            <input
+              type="text"
+              id="itemInput"
+              placeholder="Novo item..."
+              maxlength="40"
+              autocomplete="off"
+            />
+            <button type="submit" class="btn-add" title="Adicionar">+</button>
+          </form>
+
+          <ul id="itemsList" class="items-list"></ul>
+
+          <div class="panel-actions">
+            <button id="clearItems" class="btn-secondary" title="Limpar todos os itens">
+              Limpar itens
+            </button>
+          </div>
+        </aside>
+
+        <!-- Centro: Roleta -->
+        <section class="wheel-section">
+          <div class="wheel-container">
+            <div class="pointer"></div>
+            <canvas id="wheel" width="420" height="420"></canvas>
+            <button id="spinBtn" class="spin-btn idle" title="Girar a roleta">
+              <span id="spinBtnLabel">GIRAR</span>
+            </button>
+          </div>
+        </section>
+
+        <!-- Direita: Modo + Histórico -->
+        <aside class="history-section">
+          <div class="mode-bar">
+            <span class="mode-label">Modo do sorteio</span>
+            <div class="mode-options">
+              <button type="button" class="mode-btn active" data-mode="geral" title="Sorteio normal — itens permanecem na roleta">Geral</button>
+              <button type="button" class="mode-btn" data-mode="eliminatorio" title="Item sorteado sai da roleta (permanece na lista)">Eliminatório</button>
+            </div>
+            <p id="modeHint" class="mode-hint">Modo geral: os itens permanecem na roleta após o sorteio.</p>
+          </div>
+
+          <div class="history-header">
+            <h2>Histórico de Sorteios</h2>
+            <div class="history-actions">
+              <button id="toggleHistoryOrder" class="btn-secondary btn-sm" title="Inverter ordem do histórico">⇅ Ordem</button>
+              <button id="clearHistory" class="btn-secondary btn-sm">Limpar</button>
+            </div>
+          </div>
+          <ol id="historyList" class="history-list"></ol>
+          <p id="emptyHistory" class="empty-msg">Nenhum sorteio realizado ainda.</p>
+        </aside>
+      </div>
+    </main>
+
+    <footer class="footer">
+      <p>Feito para uso público · Dados salvos localmente no seu navegador</p>
+    </footer>
+  </div>
+
+  <!-- Overlay de resultado do sorteio -->
+  <div id="resultOverlay" class="result-overlay hidden">
+    <div class="result-card">
+      <div class="result-sparkles"></div>
+      <p id="resultLabel" class="result-label">Sorteado!</p>
+      <h2 id="resultText" class="result-value"></h2>
+      <p id="resultSubtext" class="result-subtext hidden"></p>
+      <button id="closeResult" class="btn-close-result">Continuar</button>
+    </div>
+  </div>
+
+  <!-- Confirmação de troca de modo -->
+  <div id="modeConfirmOverlay" class="mode-confirm-overlay hidden">
+    <div class="mode-confirm-card">
+      <h3>Mudar modo de sorteio?</h3>
+      <p id="modeConfirmText">Há itens no histórico de sorteios. Ao mudar o modo, o histórico será apagado para iniciar o novo sorteio.</p>
+      <div class="mode-confirm-actions">
+        <button id="modeConfirmCancel" class="btn-secondary">Cancelar</button>
+        <button id="modeConfirmOk" class="btn-confirm-mode">Mudar modo</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal de Configurações -->
+  <div id="settingsModal" class="settings-modal hidden">
+    <div class="settings-panel">
+      <div class="settings-header">
+        <h2>Personalização</h2>
+        <button id="closeSettings" class="btn-close-settings" title="Fechar">✕</button>
+      </div>
+
+      <div class="settings-body">
+        <!-- Temas -->
+        <div class="settings-group">
+          <label class="settings-label">Tema</label>
+          <div class="theme-options">
+            <button class="theme-btn active" data-theme="dark" title="Escuro">
+              <span class="theme-preview dark-preview"></span>
+              Escuro
+            </button>
+            <button class="theme-btn" data-theme="light" title="Claro">
+              <span class="theme-preview light-preview"></span>
+              Claro
+            </button>
+            <button class="theme-btn" data-theme="glass" title="Translúcido">
+              <span class="theme-preview glass-preview"></span>
+              Translúcido
+            </button>
+          </div>
+        </div>
+
+        <!-- Fundo com imagem -->
+        <div class="settings-group">
+          <label class="settings-label">Fundo da página</label>
+
+          <div id="bgPreviewWrap" class="bg-preview-wrap">
+            <div id="bgPreview" class="bg-preview">
+              <span class="bg-preview-placeholder">Sem imagem</span>
+            </div>
+          </div>
+
+          <div class="bg-controls">
+            <label class="btn-upload">
+              <input type="file" id="bgImageInput" accept="image/*" hidden />
+              Escolher imagem
+            </label>
+            <button id="defaultBgBtn" class="btn-secondary btn-sm" title="Usar fundo padrão (degradê)">
+              Fundo padrão
+            </button>
+            <button id="removeBg" class="btn-secondary btn-sm" title="Remover imagem de fundo">
+              Remover
+            </button>
+          </div>
+          <p class="settings-hint">A imagem personalizada substitui o degradê padrão.</p>
+        </div>
+
+        <div class="settings-footer">
+          <button id="saveSettings" class="btn-save">Salvar alterações</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script src="script.js"></script>
+</body>
+</html>
