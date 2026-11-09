@@ -5,14 +5,22 @@
  * - Confetes no resultado
  */
 
-(() => {
-  const STORAGE_KEY = "roleta-sorteio-v4";
+(async () => {
+  const STORAGE_KEY = "roleta-sorteio";
+  const LEGACY_STORAGE_KEY = "roleta-sorteio-v4";
+  const SCHEMA_VERSION = 1;
+  const MEDIA_DB_NAME = "roleta-sorteio-media";
+  const MEDIA_STORE_NAME = "backgrounds";
 
   let items = []; // { label, color }
   let history = [];
   let title = "Sorteio";
   let theme = "dark";
   let bgImage = null;
+  let backgroundMediaId = null;
+  let activeWheelId = null;
+  let mediaDbPromise = null;
+  let saveQueue = Promise.resolve();
   let isSpinning = false;
   let currentRotation = 0;
   let pendingTheme = "dark";
@@ -130,35 +138,228 @@
     items.forEach((it) => { it.eliminated = false; });
   }
 
-  function loadState() {
+  function openMediaDatabase() {
+    if (!("indexedDB" in window)) {
+      return Promise.reject(new Error("IndexedDB não está disponível neste navegador."));
+    }
+    if (mediaDbPromise) return mediaDbPromise;
+
+    mediaDbPromise = new Promise((resolve, reject) => {
+      const request = indexedDB.open(MEDIA_DB_NAME, 1);
+      request.onupgradeneeded = () => {
+        const db = request.result;
+        if (!db.objectStoreNames.contains(MEDIA_STORE_NAME)) {
+          db.createObjectStore(MEDIA_STORE_NAME, { keyPath: "id" });
+        }
+      };
+      request.onsuccess = () => resolve(request.result);
+      request.onerror = () => reject(request.error || new Error("Falha ao abrir o banco de mídias."));
+      request.onblocked = () => reject(new Error("A abertura do banco de mídias foi bloqueada."));
+    });
+    return mediaDbPromise;
+  }
+
+  async function storeBackgroundBlob(blob, id = createId()) {
+    const db = await openMediaDatabase();
+    return new Promise((resolve, reject) => {
+      const transaction = db.transaction(MEDIA_STORE_NAME, "readwrite");
+      transaction.objectStore(MEDIA_STORE_NAME).put({ id, blob, createdAt: new Date().toISOString() });
+      transaction.oncomplete = () => resolve(id);
+      transaction.onerror = () => reject(transaction.error || new Error("Falha ao armazenar a mídia."));
+      transaction.onabort = () => reject(transaction.error || new Error("Armazenamento de mídia cancelado."));
+    });
+  }
+
+  async function readBackgroundBlob(id) {
+    const db = await openMediaDatabase();
+    return new Promise((resolve, reject) => {
+      const request = db.transaction(MEDIA_STORE_NAME, "readonly")
+        .objectStore(MEDIA_STORE_NAME).get(id);
+      request.onsuccess = () => resolve(request.result ? request.result.blob : null);
+      request.onerror = () => reject(request.error || new Error("Falha ao recuperar a mídia."));
+    });
+  }
+
+  async function persistBackgroundReference() {
+    if (!bgImage) {
+      backgroundMediaId = null;
+      return null;
+    }
+
+    if (bgImage.startsWith("data:image/")) {
+      const response = await fetch(bgImage);
+      const blob = await response.blob();
+      backgroundMediaId = await storeBackgroundBlob(blob, backgroundMediaId || createId());
+      return backgroundMediaId;
+    }
+
+    return backgroundMediaId;
+  }
+
+  function getWheelFromDocument(documentData) {
+    if (!Array.isArray(documentData.wheels)) return null;
+    return documentData.wheels.find((wheel) => wheel && wheel.id === documentData.activeWheelId)
+      || documentData.wheels[0]
+      || null;
+  }
+
+  function applyLoadedWheel(wheel, preferences = {}) {
+    if (!wheel || typeof wheel !== "object") return;
+    activeWheelId = typeof wheel.id === "string" && wheel.id ? wheel.id : createId();
+    items = normalizeItems(wheel.items);
+    history = normalizeHistory(wheel.history);
+    history.sort((a, b) => Date.parse(a.time) - Date.parse(b.time));
+    title = typeof wheel.title === "string" ? wheel.title : "Sorteio";
+    spinMode = wheel.mode === "eliminatorio" ? "eliminatorio" : "geral";
+    bgImage = null;
+    backgroundMediaId = wheel.background && typeof wheel.background.mediaId === "string"
+      ? wheel.background.mediaId
+      : null;
+
+    theme = ["dark", "light", "glass", "glass-light", "glass-dark"].includes(preferences.theme)
+      ? preferences.theme
+      : "dark";
+    historyOrder = preferences.historyOrder === "newest" ? "newest" : "oldest";
+  }
+
+  async function restoreBackground() {
+    if (!backgroundMediaId) return;
     try {
-      const raw = localStorage.getItem(STORAGE_KEY);
-      if (!raw) return;
-      const data = JSON.parse(raw);
-      if (!data || typeof data !== "object" || Array.isArray(data)) return;
-      items = normalizeItems(data.items);
-      history = normalizeHistory(data.history);
-      history.sort((a, b) => Date.parse(a.time) - Date.parse(b.time));
-      title = typeof data.title === "string" ? data.title : "Sorteio";
-      theme = ["dark", "light", "glass"].includes(data.theme) ? data.theme : "dark";
-      bgImage = typeof data.bgImage === "string" && data.bgImage.startsWith("data:image/") ? data.bgImage : null;
-      spinMode = data.spinMode === "eliminatorio" ? "eliminatorio" : "geral";
-      historyOrder = data.historyOrder === "newest" ? "newest" : "oldest";
-    } catch (e) {
-      console.warn("Erro ao carregar estado:", e);
+      const blob = await readBackgroundBlob(backgroundMediaId);
+      if (blob instanceof Blob) {
+        bgImage = URL.createObjectURL(blob);
+      } else {
+        console.warn("A referência do plano de fundo não possui um arquivo de mídia.");
+        backgroundMediaId = null;
+      }
+    } catch (error) {
+      console.warn("Não foi possível recuperar o plano de fundo:", error);
+      // Mantém o restante dos dados disponível mesmo se a mídia falhar.
+      backgroundMediaId = null;
+    }
+  }
+
+  async function migrateLegacyState(legacyData) {
+    const legacyWheel = {
+      id: createId(),
+      title: typeof legacyData.title === "string" ? legacyData.title : "Sorteio",
+      mode: legacyData.spinMode === "eliminatorio" ? "eliminatorio" : "geral",
+      spinDurationSeconds: 5,
+      items: normalizeItems(legacyData.items),
+      history: normalizeHistory(legacyData.history),
+      background: { scope: "wheel", mediaId: null, mediaType: null },
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString()
+    };
+
+    legacyWheel.history.sort((a, b) => Date.parse(a.time) - Date.parse(b.time));
+    activeWheelId = legacyWheel.id;
+    items = legacyWheel.items;
+    history = legacyWheel.history;
+    title = legacyWheel.title;
+    spinMode = legacyWheel.mode;
+    theme = ["dark", "light", "glass"].includes(legacyData.theme) ? legacyData.theme : "dark";
+    historyOrder = legacyData.historyOrder === "newest" ? "newest" : "oldest";
+    bgImage = typeof legacyData.bgImage === "string" && legacyData.bgImage.startsWith("data:image/")
+      ? legacyData.bgImage
+      : null;
+
+    if (bgImage) {
+      try {
+        const response = await fetch(bgImage);
+        const blob = await response.blob();
+        backgroundMediaId = await storeBackgroundBlob(blob);
+        legacyWheel.background.mediaId = backgroundMediaId;
+        bgImage = URL.createObjectURL(blob);
+      } catch (error) {
+        console.warn("Não foi possível migrar a imagem antiga para IndexedDB. A imagem antiga será preservada no documento de migração.", error);
+        legacyWheel.background.legacyDataUrl = bgImage;
+      }
+    }
+
+    await writeVersionedState(legacyWheel);
+  }
+
+  async function writeVersionedState(wheelOverride = null) {
+    const mediaId = await persistBackgroundReference();
+    const wheel = wheelOverride || {
+      id: activeWheelId || createId(),
+      title,
+      mode: spinMode,
+      spinDurationSeconds: 5,
+      items,
+      history,
+      background: {
+        scope: "wheel",
+        mediaId,
+        mediaType: mediaId ? "image" : null
+      },
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString()
+    };
+
+    if (!wheelOverride && wheel.background && mediaId) {
+      wheel.background.mediaId = mediaId;
+      wheel.background.mediaType = "image";
+      delete wheel.background.legacyDataUrl;
+    }
+
+    const documentData = {
+      schemaVersion: SCHEMA_VERSION,
+      preferences: { theme, historyOrder },
+      activeWheelId: wheel.id,
+      wheels: [wheel]
+    };
+
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(documentData));
+    activeWheelId = wheel.id;
+    return true;
+  }
+
+  async function loadState() {
+    let raw = null;
+    try {
+      raw = localStorage.getItem(STORAGE_KEY);
+      if (raw) {
+        const documentData = JSON.parse(raw);
+        if (!documentData || typeof documentData !== "object" ||
+            documentData.schemaVersion !== SCHEMA_VERSION) {
+          throw new Error("Versão ou estrutura de armazenamento não reconhecida.");
+        }
+
+        const wheel = getWheelFromDocument(documentData);
+        if (!wheel) throw new Error("Nenhuma roleta válida foi encontrada no armazenamento.");
+
+        applyLoadedWheel(wheel, documentData.preferences || {});
+        if (wheel.background && typeof wheel.background.legacyDataUrl === "string") {
+          bgImage = wheel.background.legacyDataUrl;
+        } else {
+          await restoreBackground();
+        }
+        return;
+      }
+
+      const legacyRaw = localStorage.getItem(LEGACY_STORAGE_KEY);
+      if (!legacyRaw) return;
+      const legacyData = JSON.parse(legacyRaw);
+      if (!legacyData || typeof legacyData !== "object" || Array.isArray(legacyData)) {
+        throw new Error("Os dados antigos possuem uma estrutura inválida.");
+      }
+
+      await migrateLegacyState(legacyData);
+      console.info("Migração dos dados antigos concluída. A cópia original foi preservada.");
+    } catch (error) {
+      console.error("Erro ao carregar ou migrar os dados:", error);
+      // Não apaga nem sobrescreve os dados antigos em caso de falha.
     }
   }
 
   function saveState() {
-    try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify({
-        items, history, title, theme, bgImage, spinMode, historyOrder
-      }));
-      return true;
-    } catch (error) {
+    saveQueue = saveQueue.then(() => writeVersionedState()).catch((error) => {
       console.warn("Não foi possível salvar os dados neste navegador:", error);
       return false;
-    }
+    });
+    return saveQueue;
   }
 
   function applyTheme(t, persist = true) {
